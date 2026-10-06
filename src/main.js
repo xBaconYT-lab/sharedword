@@ -216,7 +216,14 @@ async function importDocx (file) {
       quill.setContents(delta, 'user')
     } else {
       const Delta = Quill.import('delta')
-      quill.updateContents(new Delta().retain(quill.getLength() - 1).insert('\n').concat(delta), 'user')
+      // drop the final newline so the appended file does not leave an empty line at the end
+      const ops = delta.ops.slice()
+      const last = ops[ops.length - 1]
+      if (last && typeof last.insert === 'string' && !last.attributes && last.insert.endsWith('\n')) {
+        last.insert = last.insert.slice(0, -1)
+        if (!last.insert) ops.pop()
+      }
+      quill.updateContents(new Delta().retain(quill.getLength() - 1).insert('\n').concat(new Delta(ops)), 'user')
     }
     quill.setSelection(0, 0, 'silent')
     toast(`Loaded ${file.name} – everyone on this page can edit it now`, 3500)
