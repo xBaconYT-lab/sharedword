@@ -1,4 +1,4 @@
-// Shared Word – a real-time collaborative document for GitHub Pages.
+// Shared Word – a real-time collaborative Word-style document for GitHub Pages.
 // Sync: Yjs CRDT over a public websocket relay + WebRTC peer-to-peer, with a
 // local IndexedDB copy so the document survives reloads and works offline.
 import * as Y from 'yjs'
@@ -10,9 +10,12 @@ import QuillCursors from 'quill-cursors'
 import { QuillBinding } from 'y-quill'
 import mammoth from 'mammoth'
 import {
-  Document, Packer, Paragraph, TextRun, ExternalHyperlink, ImageRun,
-  HeadingLevel, AlignmentType, BorderStyle, LevelFormat, ShadingType
+  Document, Packer, Paragraph, TextRun, ExternalHyperlink, ImageRun, Tab,
+  Table, TableRow, TableCell, WidthType,
+  HeadingLevel, AlignmentType, BorderStyle, LevelFormat, ShadingType, LineRuleType
 } from 'docx'
+import { FONTS, DEFAULT_DOCX_FONT, mapFontName, docxFontName, injectFontCss, fillFontSelect } from './fonts.js'
+import { docxToDelta } from './docx-import.js'
 import 'quill/dist/quill.snow.css'
 import 'quill-cursors/css'
 import './style.css'
@@ -44,6 +47,9 @@ function loadUser () {
   return { name, color }
 }
 const initials = (n) => (n || '?').trim().split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase()
+const THAI = /[฀-๿]/
+const DEFAULT_PT = 16
+const FIRSTLINE_DEFAULT = '2.5cm' // ย่อหน้า used in Thai official documents
 
 // ---------------------------------------------------------------- room
 const CFG = Object.assign(
@@ -69,32 +75,77 @@ try {
 const user = loadUser()
 awareness.setLocalStateField('user', user)
 
-// ---------------------------------------------------------------- Quill
+// ---------------------------------------------------------------- Quill formats
+const Parchment = Quill.import('parchment')
+const blockStyle = (name, key) => new Parchment.StyleAttributor(name, key, { scope: Parchment.Scope.BLOCK })
+// Word-like paragraph layout: first-line indent (ย่อหน้า), left/right indent, spacing
+const FirstLine = blockStyle('firstline', 'text-indent')
+const LeftIndent = blockStyle('leftindent', 'margin-left')
+const RightIndent = blockStyle('rightindent', 'margin-right')
+const SpaceBefore = blockStyle('spacebefore', 'margin-top')
+const SpaceAfter = blockStyle('spaceafter', 'margin-bottom')
+const LineSpacing = blockStyle('linespacing', 'line-height')
+Quill.register({
+  'formats/firstline': FirstLine,
+  'formats/leftindent': LeftIndent,
+  'formats/rightindent': RightIndent,
+  'formats/spacebefore': SpaceBefore,
+  'formats/spaceafter': SpaceAfter,
+  'formats/linespacing': LineSpacing
+}, true)
+
 const Font = Quill.import('formats/font')
-Font.whitelist = ['sarabun', 'arial', 'times', 'courier']
+Font.whitelist = FONTS.map((f) => f.id)
 Quill.register(Font, true)
-const SIZES = ['10pt', '12pt', '14pt', '16pt', '18pt', '20pt', '24pt', '28pt', '32pt', '36pt', '48pt']
 const Size = Quill.import('attributors/style/size')
-Size.whitelist = SIZES
+Size.whitelist = null // any "NNpt" value, like Word
 Quill.register(Size, true)
 Quill.register('modules/cursors', QuillCursors)
 
-const quill = new Quill('#editor', {
+injectFontCss()
+fillFontSelect($('#toolbar select.ql-font'))
+
+// ---------------------------------------------------------------- Quill editor
+let quill // assigned below; toolbar handlers run later
+const toolbarHandlers = {
+  firstline () {
+    const cur = quill.getFormat().firstline
+    quill.format('firstline', cur ? false : FIRSTLINE_DEFAULT, 'user')
+  },
+  table (value) {
+    if (!value) return
+    const t = quill.getModule('table')
+    const range = quill.getSelection(true)
+    if (value === 'insert') {
+      const s = prompt('ขนาดตาราง (แถว x คอลัมน์) / Table size (rows x columns)', '3x3')
+      if (!s) return
+      const m = /(\d+)\s*[x×*]\s*(\d+)/i.exec(s)
+      if (!m) { toast('Please type a size like 3x4'); return }
+      t.insertTable(Math.min(+m[1], 50), Math.min(+m[2], 12))
+      return
+    }
+    const [table] = t.getTable(range)
+    if (!table) { toast('Click inside a table first / คลิกในตารางก่อน'); return }
+    const ops = {
+      'row-above': () => t.insertRowAbove(),
+      'row-below': () => t.insertRowBelow(),
+      'col-left': () => t.insertColumnLeft(),
+      'col-right': () => t.insertColumnRight(),
+      'del-row': () => t.deleteRow(),
+      'del-col': () => t.deleteColumn(),
+      'del-table': () => t.deleteTable()
+    }
+    if (ops[value]) ops[value]()
+  }
+}
+
+quill = new Quill('#editor', {
   theme: 'snow',
   placeholder: 'Start typing… everyone on this page sees your changes live. / พิมพ์ได้เลย ทุกคนจะเห็นทันที',
   modules: {
     cursors: { transformOnTextChange: true },
-    toolbar: [
-      [{ font: [false, 'arial', 'times', 'courier'] }, { size: ['10pt', '12pt', '14pt', false, '18pt', '20pt', '24pt', '28pt', '32pt', '36pt', '48pt'] }],
-      [{ header: [1, 2, 3, false] }],
-      ['bold', 'italic', 'underline', 'strike'],
-      [{ color: [] }, { background: [] }],
-      [{ list: 'ordered' }, { list: 'bullet' }, { list: 'check' }],
-      [{ indent: '-1' }, { indent: '+1' }],
-      [{ align: [] }],
-      ['blockquote', 'code-block', 'link', 'image'],
-      ['clean']
-    ],
+    table: true,
+    toolbar: { container: '#toolbar', handlers: toolbarHandlers },
     history: { userOnly: true }
   }
 })
@@ -179,6 +230,25 @@ $('#new-doc').addEventListener('click', (e) => {
 })
 window.addEventListener('hashchange', () => location.reload())
 
+// export menu
+const exportBtn = $('#export-btn')
+const exportMenu = $('#export-menu')
+function closeExportMenu () { exportMenu.hidden = true; exportBtn.setAttribute('aria-expanded', 'false') }
+exportBtn.addEventListener('click', (e) => {
+  e.stopPropagation()
+  exportMenu.hidden = !exportMenu.hidden
+  exportBtn.setAttribute('aria-expanded', String(!exportMenu.hidden))
+})
+document.addEventListener('click', (e) => { if (!exportMenu.contains(e.target)) closeExportMenu() })
+exportMenu.addEventListener('click', (e) => {
+  const kind = e.target.closest('button') && e.target.closest('button').dataset.export
+  if (!kind) return
+  closeExportMenu()
+  if (kind === 'docx') downloadDocx()
+  else if (kind === 'pdf') { toast('In the print dialog choose “Save as PDF” / เลือก “บันทึกเป็น PDF”', 4000); setTimeout(() => window.print(), 300) }
+  else if (kind === 'txt') saveBlob(new Blob([quill.getText()], { type: 'text/plain;charset=utf-8' }), docName() + '.txt')
+})
+
 // ---------------------------------------------------------------- Word import (.docx -> editor)
 const fileInput = document.createElement('input')
 fileInput.type = 'file'
@@ -192,6 +262,16 @@ fileInput.addEventListener('change', () => {
   fileInput.value = ''
 })
 
+function trimTrailingNewline (ops) {
+  ops = ops.slice()
+  const last = ops[ops.length - 1]
+  if (last && typeof last.insert === 'string' && !last.attributes && last.insert.endsWith('\n')) {
+    last.insert = last.insert.slice(0, -1)
+    if (!last.insert) ops.pop()
+  }
+  return ops
+}
+
 async function importDocx (file) {
   if (!/\.docx$/i.test(file.name)) {
     toast('Please choose a Word .docx file (older .doc files must be saved as .docx first)', 4000)
@@ -200,30 +280,29 @@ async function importDocx (file) {
   toast(`Reading ${file.name}…`)
   try {
     const arrayBuffer = await file.arrayBuffer()
-    const result = await mammoth.convertToHtml({ arrayBuffer }, { styleMap: ['u => u', 'strike => s'] })
-    const delta = quill.clipboard.convert({ html: result.value })
+    let delta
+    try {
+      delta = await docxToDelta(arrayBuffer, { mapFont: mapFontName, defaultSize: DEFAULT_PT + 'pt' })
+    } catch (err) {
+      console.warn('Native importer failed, falling back to Mammoth', err)
+      const result = await mammoth.convertToHtml({ arrayBuffer }, { styleMap: ['u => u', 'strike => s'] })
+      delta = quill.clipboard.convert({ html: result.value })
+    }
     if (!delta.ops || !delta.ops.length) throw new Error('the file looks empty')
     const hasContent = quill.getLength() > 1
     let replace = true
     if (hasContent) {
       replace = confirm(
-        `This shared document already has text.\n\n` +
+        'This shared document already has text.\n\n' +
         `OK = replace everything with "${file.name}" (everyone will see this)\n` +
-        `Cancel = add the file's content at the end instead`
+        'Cancel = add the file\'s content at the end instead'
       )
     }
+    const Delta = Quill.import('delta')
     if (replace) {
-      quill.setContents(delta, 'user')
+      quill.setContents(new Delta(delta.ops), 'user')
     } else {
-      const Delta = Quill.import('delta')
-      // drop the final newline so the appended file does not leave an empty line at the end
-      const ops = delta.ops.slice()
-      const last = ops[ops.length - 1]
-      if (last && typeof last.insert === 'string' && !last.attributes && last.insert.endsWith('\n')) {
-        last.insert = last.insert.slice(0, -1)
-        if (!last.insert) ops.pop()
-      }
-      quill.updateContents(new Delta().retain(quill.getLength() - 1).insert('\n').concat(new Delta(ops)), 'user')
+      quill.updateContents(new Delta().retain(quill.getLength() - 1).insert('\n').concat(new Delta(trimTrailingNewline(delta.ops))), 'user')
     }
     quill.setSelection(0, 0, 'silent')
     toast(`Loaded ${file.name} – everyone on this page can edit it now`, 3500)
@@ -259,13 +338,12 @@ document.addEventListener('drop', (e) => {
 }, true)
 
 // ---------------------------------------------------------------- Word export (editor -> .docx)
-const DOCX_FONTS = { sarabun: 'TH SarabunPSK', arial: 'Arial', times: 'Times New Roman', courier: 'Courier New' }
-const DEFAULT_FONT = 'TH SarabunPSK'
-const DEFAULT_PT = 16
 const HEADINGS = {
   1: HeadingLevel.HEADING_1, 2: HeadingLevel.HEADING_2, 3: HeadingLevel.HEADING_3,
   4: HeadingLevel.HEADING_4, 5: HeadingLevel.HEADING_5, 6: HeadingLevel.HEADING_6
 }
+const PAGE = { width: 11906, height: 16838, margin: 1440 } // A4, 2.54 cm margins
+const TEXT_WIDTH = PAGE.width - 2 * PAGE.margin
 
 function ptFromSize (v) {
   if (!v) return null
@@ -273,6 +351,20 @@ function ptFromSize (v) {
   if (!m) return null
   const n = parseFloat(m[1])
   return (m[2] || '').toLowerCase() === 'px' ? n * 0.75 : n
+}
+function twipsFromLength (v) {
+  if (!v) return 0
+  const m = /^(-?[\d.]+)\s*(cm|mm|in|pt|px|em)?$/i.exec(String(v).trim())
+  if (!m) return 0
+  const n = parseFloat(m[1])
+  switch ((m[2] || 'px').toLowerCase()) {
+    case 'cm': return Math.round(n * 567)
+    case 'mm': return Math.round(n * 56.7)
+    case 'in': return Math.round(n * 1440)
+    case 'pt': return Math.round(n * 20)
+    case 'em': return Math.round(n * DEFAULT_PT * 20)
+    default: return Math.round(n * 15)
+  }
 }
 function hex (c) {
   if (!c) return undefined
@@ -288,12 +380,22 @@ function hex (c) {
 function runOpts (text, a, block, extra = {}) {
   const pt = ptFromSize(a.size)
   const o = {
-    text,
     bold: !!a.bold,
     italics: !!a.italic,
     strike: !!a.strike,
-    font: a.font && DOCX_FONTS[a.font] ? DOCX_FONTS[a.font] : DEFAULT_FONT,
+    font: a.font ? docxFontName(a.font) : DEFAULT_DOCX_FONT,
     ...extra
+  }
+  // tabs become real Word tabs
+  if (text.includes('\t')) {
+    const children = []
+    text.split('\t').forEach((part, i) => {
+      if (i > 0) children.push(new Tab())
+      if (part) children.push(part)
+    })
+    o.children = children
+  } else {
+    o.text = text
   }
   if (a.underline) o.underline = {}
   if (pt) { o.size = Math.round(pt * 2); o.sizeComplexScript = Math.round(pt * 2) }
@@ -322,26 +424,63 @@ function makeParagraph (segments, a) {
   const o = { children: segments.map((s) => makeRun(s, a)) }
   if (HEADINGS[a.header]) o.heading = HEADINGS[a.header]
   const level = Math.min(Math.max(a.indent || 0, 0), 8)
+  const indent = {}
   if (a.list === 'bullet') {
     o.bullet = { level }
   } else if (a.list === 'ordered') {
     o.numbering = { reference: 'numbers', level }
   } else if (a.list === 'checked' || a.list === 'unchecked') {
     o.children.unshift(new TextRun({ text: a.list === 'checked' ? '☑ ' : '☐ ', font: 'Segoe UI Symbol' }))
-    if (level) o.indent = { left: 720 * level }
+    if (level) indent.left = 720 * level
   } else if (level) {
-    o.indent = { left: 720 * level }
+    indent.left = 720 * level
   }
+  // Word-like paragraph layout
+  if (a.leftindent) indent.left = (indent.left || 0) + twipsFromLength(a.leftindent)
+  if (a.rightindent) indent.right = twipsFromLength(a.rightindent)
+  if (a.firstline) {
+    const fl = twipsFromLength(a.firstline)
+    if (fl >= 0) indent.firstLine = fl
+    else { indent.hanging = -fl; indent.left = Math.max(indent.left || 0, -fl) }
+  }
+  if (a.blockquote) indent.left = (indent.left || 0) + 720
+  if (Object.keys(indent).length) o.indent = indent
+  const spacing = {}
+  if (a.spacebefore) spacing.before = twipsFromLength(a.spacebefore)
+  if (a.spaceafter) spacing.after = twipsFromLength(a.spaceafter)
+  if (a.linespacing) {
+    const v = String(a.linespacing).trim()
+    if (/pt$/i.test(v)) { spacing.line = twipsFromLength(v); spacing.lineRule = LineRuleType.AT_LEAST } else if (!isNaN(parseFloat(v))) { spacing.line = Math.round(parseFloat(v) * 240); spacing.lineRule = LineRuleType.AUTO }
+  }
+  if (Object.keys(spacing).length) o.spacing = spacing
+  const hasThai = segments.some((s) => s.text && THAI.test(s.text))
   if (a.align === 'center') o.alignment = AlignmentType.CENTER
   else if (a.align === 'right') o.alignment = AlignmentType.RIGHT
-  else if (a.align === 'justify') o.alignment = AlignmentType.JUSTIFIED
-  if (a.blockquote) {
-    o.indent = { left: 720 }
-    o.border = { left: { style: BorderStyle.SINGLE, size: 12, color: 'CCCCCC', space: 8 } }
-  }
+  else if (a.align === 'justify') o.alignment = hasThai ? AlignmentType.THAI_DISTRIBUTE : AlignmentType.JUSTIFIED
+  if (a.blockquote) o.border = { left: { style: BorderStyle.SINGLE, size: 12, color: 'CCCCCC', space: 8 } }
   if (a['code-block']) o.shading = { type: ShadingType.CLEAR, fill: 'F3F4F6' }
   if (a.direction === 'rtl') o.bidirectional = true
   return new Paragraph(o)
+}
+const CELL_BORDER = { style: BorderStyle.SINGLE, size: 4, color: '000000' }
+function makeTable (rows) {
+  const cols = Math.max(1, ...rows.map((r) => r.length))
+  const colWidth = Math.floor(TEXT_WIDTH / cols)
+  return new Table({
+    width: { size: TEXT_WIDTH, type: WidthType.DXA },
+    columnWidths: Array(cols).fill(colWidth),
+    borders: { top: CELL_BORDER, bottom: CELL_BORDER, left: CELL_BORDER, right: CELL_BORDER, insideHorizontal: CELL_BORDER, insideVertical: CELL_BORDER },
+    rows: rows.map((cells) => new TableRow({
+      children: Array.from({ length: cols }, (_, i) => {
+        const c = cells[i]
+        const { table, ...rest } = c ? c.a : {}
+        return new TableCell({
+          width: { size: colWidth, type: WidthType.DXA },
+          children: [c ? makeParagraph(c.segments, rest) : new Paragraph('')]
+        })
+      })
+    }))
+  })
 }
 async function imageRun (src) {
   const m = /^data:(image\/(png|jpeg|jpg|gif|bmp));base64,(.+)$/i.exec(src || '')
@@ -361,10 +500,10 @@ async function imageRun (src) {
   const scale = dims.w > maxW ? maxW / dims.w : 1
   return new ImageRun({ type, data: bytes, transformation: { width: Math.round(dims.w * scale), height: Math.round(dims.h * scale) } })
 }
-async function deltaToParagraphs (ops) {
-  const paragraphs = []
+async function deltaToLines (ops) {
+  const lines = []
   let segments = []
-  const flush = (a) => { paragraphs.push(makeParagraph(segments, a)); segments = [] }
+  const flush = (a) => { lines.push({ segments, a }); segments = [] }
   for (const op of ops) {
     const a = op.attributes || {}
     if (typeof op.insert === 'string') {
@@ -379,7 +518,31 @@ async function deltaToParagraphs (ops) {
     }
   }
   if (segments.length) flush({})
-  return paragraphs
+  return lines
+}
+function linesToBlocks (lines) {
+  const blocks = []
+  let i = 0
+  while (i < lines.length) {
+    if (lines[i].a.table) {
+      const rows = []
+      while (i < lines.length && lines[i].a.table) {
+        const id = lines[i].a.table
+        const cells = []
+        while (i < lines.length && lines[i].a.table === id) { cells.push(lines[i]); i++ }
+        rows.push(cells)
+      }
+      blocks.push(makeTable(rows))
+    } else {
+      blocks.push(makeParagraph(lines[i].segments, lines[i].a))
+      i++
+    }
+  }
+  return blocks
+}
+function docName () {
+  const firstLine = (quill.getText(0, 400).split('\n').find((l) => l.trim()) || 'shared-document').trim()
+  return firstLine.slice(0, 60).replace(/[\\/:*?"<>|]+/g, '-')
 }
 function saveBlob (blob, filename) {
   const a = document.createElement('a')
@@ -390,44 +553,51 @@ function saveBlob (blob, filename) {
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove() }, 1500)
 }
 async function buildDocxBlob () {
-    const ops = quill.getContents().ops
-    const paragraphs = await deltaToParagraphs(ops)
-    const firstLine = (quill.getText(0, 400).split('\n').find((l) => l.trim()) || 'shared-document').trim()
-    const title = firstLine.slice(0, 60)
-    const run = (size, bold) => ({ font: DEFAULT_FONT, size, sizeComplexScript: size, bold })
-    const doc = new Document({
-      creator: 'Shared Word',
-      title,
-      styles: {
-        default: {
-          document: { run: { font: DEFAULT_FONT, size: DEFAULT_PT * 2, sizeComplexScript: DEFAULT_PT * 2 } },
-          heading1: { run: run(56, true), paragraph: { spacing: { before: 240, after: 120 } } },
-          heading2: { run: run(44, true), paragraph: { spacing: { before: 200, after: 100 } } },
-          heading3: { run: run(36, true), paragraph: { spacing: { before: 160, after: 80 } } },
-          heading4: { run: run(32, true) },
-          heading5: { run: run(32, true) },
-          heading6: { run: run(32, true) }
+  const lines = await deltaToLines(quill.getContents().ops)
+  const blocks = linesToBlocks(lines)
+  const title = docName()
+  const run = (size, bold) => ({ font: DEFAULT_DOCX_FONT, size, sizeComplexScript: size, bold })
+  const doc = new Document({
+    creator: 'Shared Word',
+    title,
+    styles: {
+      default: {
+        document: { run: { font: DEFAULT_DOCX_FONT, size: DEFAULT_PT * 2, sizeComplexScript: DEFAULT_PT * 2 } },
+        heading1: { run: run(56, true), paragraph: { spacing: { before: 240, after: 120 } } },
+        heading2: { run: run(44, true), paragraph: { spacing: { before: 200, after: 100 } } },
+        heading3: { run: run(36, true), paragraph: { spacing: { before: 160, after: 80 } } },
+        heading4: { run: run(32, true) },
+        heading5: { run: run(32, true) },
+        heading6: { run: run(32, true) }
+      }
+    },
+    numbering: {
+      config: [{
+        reference: 'numbers',
+        levels: Array.from({ length: 9 }, (_, l) => ({
+          level: l,
+          format: LevelFormat.DECIMAL,
+          text: `%${l + 1}.`,
+          alignment: AlignmentType.START,
+          style: { paragraph: { indent: { left: 720 * (l + 1), hanging: 360 } } }
+        }))
+      }]
+    },
+    sections: [{
+      properties: {
+        page: {
+          size: { width: PAGE.width, height: PAGE.height },
+          margin: { top: PAGE.margin, right: PAGE.margin, bottom: PAGE.margin, left: PAGE.margin }
         }
       },
-      numbering: {
-        config: [{
-          reference: 'numbers',
-          levels: Array.from({ length: 9 }, (_, l) => ({
-            level: l,
-            format: LevelFormat.DECIMAL,
-            text: `%${l + 1}.`,
-            alignment: AlignmentType.START,
-            style: { paragraph: { indent: { left: 720 * (l + 1), hanging: 360 } } }
-          }))
-        }]
-      },
-      sections: [{ properties: {}, children: paragraphs.length ? paragraphs : [new Paragraph('')] }]
-    })
-    const blob = await Packer.toBlob(doc)
-    return { blob, filename: title.replace(/[\\/:*?"<>|]+/g, '-') + '.docx' }
+      children: blocks.length ? blocks : [new Paragraph('')]
+    }]
+  })
+  const blob = await Packer.toBlob(doc)
+  return { blob, filename: title + '.docx' }
 }
 async function downloadDocx () {
-  const btn = $('#download')
+  const btn = $('#export-btn')
   btn.disabled = true
   toast('Preparing Word file…')
   try {
@@ -441,7 +611,6 @@ async function downloadDocx () {
     btn.disabled = false
   }
 }
-$('#download').addEventListener('click', downloadDocx)
 
 // expose a little for debugging in the console
-window.sharedword = { ydoc, ytext, ws, rtc, awareness, quill, room, importDocx, buildDocxBlob, downloadDocx }
+window.sharedword = { ydoc, ytext, ws, rtc, awareness, quill, room, importDocx, buildDocxBlob, downloadDocx, docxToDelta, FONTS }

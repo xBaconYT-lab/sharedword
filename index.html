@@ -7,12 +7,18 @@
   <meta name="description" content="A shared Word document anyone with the link can edit. Changes show up for everyone instantly.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%9D%3C/text%3E%3C/svg%3E">
   <style>
-    /* TH Sarabun PSK (DIP/SIPA national font) bundled with the site, see fonts/LICENSE-DIP-SIPA.txt */
+    /* TH Sarabun PSK bundled with the site (fonts/LICENSE-DIP-SIPA.txt) */
     @font-face { font-family: "TH Sarabun PSK"; src: url("fonts/THSarabun.ttf") format("truetype"); font-weight: 400; font-style: normal; font-display: swap; }
     @font-face { font-family: "TH Sarabun PSK"; src: url("fonts/THSarabun-Bold.ttf") format("truetype"); font-weight: 700; font-style: normal; font-display: swap; }
     @font-face { font-family: "TH Sarabun PSK"; src: url("fonts/THSarabun-Italic.ttf") format("truetype"); font-weight: 400; font-style: italic; font-display: swap; }
     @font-face { font-family: "TH Sarabun PSK"; src: url("fonts/THSarabun-BoldItalic.ttf") format("truetype"); font-weight: 700; font-style: italic; font-display: swap; }
   </style>
+  <!-- Thai fonts from Google Fonts (downloaded only when a font is actually used) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sarabun:ital,wght@0,400;0,700;1,400;1,700&family=Kanit:ital,wght@0,400;0,700;1,400;1,700&family=Prompt:ital,wght@0,400;0,700;1,400;1,700&family=Taviraj:ital,wght@0,400;0,700;1,400;1,700&family=Trirong:ital,wght@0,400;0,700;1,400;1,700&family=Thasadith:ital,wght@0,400;0,700;1,400;1,700&family=Bai+Jamjuree:ital,wght@0,400;0,700;1,400;1,700&family=Chakra+Petch:ital,wght@0,400;0,700;1,400;1,700&family=Fahkwang:ital,wght@0,400;0,700;1,400;1,700&family=K2D:ital,wght@0,400;0,700;1,400;1,700&family=Kodchasan:ital,wght@0,400;0,700;1,400;1,700&family=KoHo:ital,wght@0,400;0,700;1,400;1,700&family=Krub:ital,wght@0,400;0,700;1,400;1,700&family=Mali:ital,wght@0,400;0,700;1,400;1,700&family=Niramit:ital,wght@0,400;0,700;1,400;1,700&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mitr:wght@400;700&family=Pridi:wght@400;700&family=Athiti:wght@400;700&family=Maitree:wght@400;700&family=Noto+Sans+Thai:wght@400;700&family=Noto+Serif+Thai:wght@400;700&family=Noto+Sans+Thai+Looped:wght@400;700&family=IBM+Plex+Sans+Thai:wght@400;700&family=Anuphan:wght@400;700&family=Charm:wght@400;700&family=Charmonman:wght@400;700&family=Srisakdi:wght@400;700&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chonburi&family=Sriracha&family=Itim&family=Pattaya&display=swap">
   <link rel="stylesheet" href="app.css">
   <script>
     // Edit these without rebuilding. Everyone who opens this page with the same
@@ -36,13 +42,84 @@
     <div class="actions">
       <input id="name" class="name" type="text" maxlength="24" placeholder="Your name" autocomplete="off" spellcheck="false">
       <button id="share" class="btn" type="button" title="Copy a link to this document">Copy link</button>
-      <button id="upload" class="btn" type="button" title="Open a Word (.docx) file in this shared document">Upload .docx</button>
-      <button id="download" class="btn primary" type="button" title="Download this document as a Word file">Download .docx</button>
+      <button id="upload" class="btn" type="button" title="Open a Word (.docx) file in this shared document">Open .docx</button>
+      <div class="menu">
+        <button id="export-btn" class="btn primary" type="button" aria-haspopup="true" aria-expanded="false">Export ▾</button>
+        <div class="menu-list" id="export-menu" hidden>
+          <button type="button" data-export="docx">Word (.docx)</button>
+          <button type="button" data-export="pdf">PDF (print → Save as PDF)</button>
+          <button type="button" data-export="txt">Plain text (.txt)</button>
+        </div>
+      </div>
     </div>
   </header>
 
   <main class="workspace">
     <div class="paper">
+      <div id="toolbar">
+        <span class="ql-formats">
+          <select class="ql-font" title="Font / แบบอักษร"></select>
+          <select class="ql-size" title="Font size (pt) / ขนาด">
+            <option value="8pt">8</option><option value="9pt">9</option><option value="10pt">10</option><option value="11pt">11</option>
+            <option value="12pt">12</option><option value="14pt">14</option><option value="15pt">15</option><option selected>16</option>
+            <option value="18pt">18</option><option value="20pt">20</option><option value="22pt">22</option><option value="24pt">24</option>
+            <option value="26pt">26</option><option value="28pt">28</option><option value="32pt">32</option><option value="36pt">36</option>
+            <option value="40pt">40</option><option value="48pt">48</option><option value="72pt">72</option>
+          </select>
+          <select class="ql-header" title="Paragraph style">
+            <option value="1">Heading 1</option><option value="2">Heading 2</option><option value="3">Heading 3</option><option selected>Normal</option>
+          </select>
+        </span>
+        <span class="ql-formats">
+          <button class="ql-bold" title="Bold"></button>
+          <button class="ql-italic" title="Italic"></button>
+          <button class="ql-underline" title="Underline"></button>
+          <button class="ql-strike" title="Strikethrough"></button>
+        </span>
+        <span class="ql-formats">
+          <select class="ql-color" title="Text colour"></select>
+          <select class="ql-background" title="Highlight"></select>
+        </span>
+        <span class="ql-formats">
+          <select class="ql-align" title="Alignment">
+            <option selected></option><option value="center"></option><option value="right"></option><option value="justify"></option>
+          </select>
+          <button class="ql-firstline" title="ย่อหน้า – first-line indent 2.5 cm (Tab also works, like Word)">
+            <svg viewBox="0 0 18 18">
+              <line class="ql-stroke" x1="8" x2="15" y1="4" y2="4"></line>
+              <line class="ql-stroke" x1="3" x2="15" y1="9" y2="9"></line>
+              <line class="ql-stroke" x1="3" x2="15" y1="14" y2="14"></line>
+              <polyline class="ql-stroke" points="3 2 6 4 3 6"></polyline>
+            </svg>
+          </button>
+          <button class="ql-indent" value="-1" title="Decrease indent"></button>
+          <button class="ql-indent" value="+1" title="Increase indent"></button>
+        </span>
+        <span class="ql-formats">
+          <button class="ql-list" value="ordered" title="Numbered list"></button>
+          <button class="ql-list" value="bullet" title="Bulleted list"></button>
+          <button class="ql-list" value="check" title="Checklist"></button>
+        </span>
+        <span class="ql-formats">
+          <select class="ql-table" title="ตาราง / Table">
+            <option value="insert">แทรกตาราง · Insert table</option>
+            <option value="row-above">เพิ่มแถวด้านบน · Row above</option>
+            <option value="row-below">เพิ่มแถวด้านล่าง · Row below</option>
+            <option value="col-left">เพิ่มคอลัมน์ซ้าย · Column left</option>
+            <option value="col-right">เพิ่มคอลัมน์ขวา · Column right</option>
+            <option value="del-row">ลบแถว · Delete row</option>
+            <option value="del-col">ลบคอลัมน์ · Delete column</option>
+            <option value="del-table">ลบตาราง · Delete table</option>
+          </select>
+        </span>
+        <span class="ql-formats">
+          <button class="ql-blockquote" title="Quote"></button>
+          <button class="ql-code-block" title="Code block"></button>
+          <button class="ql-link" title="Link"></button>
+          <button class="ql-image" title="Image"></button>
+          <button class="ql-clean" title="Clear formatting"></button>
+        </span>
+      </div>
       <div id="editor"></div>
     </div>
   </main>

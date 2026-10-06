@@ -3,13 +3,32 @@
 A shared Word-style document hosted on GitHub Pages. Anyone who opens the link can
 edit it, and every change shows up for everyone else instantly (like Google Docs).
 
-- **Upload .docx** – open an existing Word file in the shared editor (or drag the file onto the page).
-- **Download .docx** – save the current document as a real Word file.
-- **TH Sarabun PSK** is the default font. It is bundled with the site (`fonts/`) so it
-  renders for everyone, and it is set as the font inside the exported Word file (16 pt).
+**Live:** https://xbaconyt-lab.github.io/sharedword/
+
+## What it does
+
+- **Open .docx** – load an existing Word file into the shared editor (or drag it onto the
+  page). Paragraph layout is kept like in Word: first-line indents (ย่อหน้า), left/right
+  and hanging indents, alignment (including Thai distributed), line spacing, space
+  before/after, fonts, sizes, colours, highlights, bold/italic/underline, headings,
+  numbered and bulleted lists, tabs, images and tables. Style-based formatting
+  (e.g. an indent defined in the Normal style) is resolved too.
+- **Export** – Word (.docx), PDF (print dialog → Save as PDF) or plain text. The Word
+  file is A4 with 2.54 cm margins, TH Sarabun PSK 16 pt by default, real tab stops,
+  `firstLine`/`hanging` indents, Thai-distributed justification for Thai text and
+  bordered tables.
+- **ย่อหน้า** – press **Tab** at the start of a paragraph (a real tab, 1.27 cm stops like
+  Word) or click the ย่อหน้า toolbar button for a 2.5 cm first-line indent.
+- **Tables** – the ตาราง / Table menu inserts a table and adds/removes rows and columns.
+  Tab moves between cells. Cells hold one line each.
+- **Fonts** – TH Sarabun PSK (bundled, default), 31 Thai fonts from Google Fonts
+  (Sarabun, Kanit, Prompt, Mitr, Chakra Petch, Niramit, Krub, Mali, …), the Thai fonts
+  that ship with Windows/Office (Angsana New, Cordia New, Browallia New, the UPC family,
+  Leelawadee, Tahoma, …) and common Latin fonts (Arial, Calibri, Times New Roman, …).
+  Fonts that are not bundled render only if installed, but the exported Word file
+  always carries the exact font name.
 - Each person's cursor and name are shown while they type.
-- The document is also saved in your browser, so it opens even when you are offline
-  and syncs again when you are back.
+- The document is also saved in your browser, so it opens offline and syncs when you are back.
 
 ## How it works
 
@@ -20,8 +39,8 @@ Everything is static (no server of your own). The page is built with:
 | Real-time sync (CRDT) | [Yjs](https://github.com/yjs/yjs) |
 | Relay between people | public Yjs websocket relay `wss://demos.yjs.dev/ws` + WebRTC peer-to-peer (`y-webrtc`) |
 | Local copy | `y-indexeddb` |
-| Editor | [Quill 2](https://quilljs.com) with `y-quill` and `quill-cursors` |
-| Word import | [Mammoth](https://github.com/mwilliamson/mammoth.js) (.docx → HTML) |
+| Editor | [Quill 2](https://quilljs.com) with `y-quill`, `quill-cursors` and Quill's table module |
+| Word import | own parser in `src/docx-import.js` (JSZip + DOMParser); [Mammoth](https://github.com/mwilliamson/mammoth.js) as fallback |
 | Word export | [docx](https://github.com/dolanmiu/docx) |
 
 Everyone who opens the site joins the same "room" (the `room` value in `index.html`),
@@ -42,6 +61,7 @@ git commit -am "update" && git push
 ```
 
 `npm run dev` serves the site on http://localhost:8765 and rebuilds on every reload.
+Tip: test on `http://localhost:8765/#some-test-room` so you do not edit the real shared document.
 
 ## Settings (no rebuild needed)
 
@@ -53,13 +73,17 @@ Open `index.html` and edit `window.SHAREDWORD_CONFIG`:
   your own with `npx y-websocket` (see the y-websocket README) and put its `wss://` URL here.
 - `signaling` – WebRTC signaling servers for direct peer-to-peer sync.
 
+The font list lives in `src/fonts.js` (rebuild after editing it).
+
 ## Good to know
 
 - The relay is a free public demo server run by the Yjs project. It does not promise to
   keep documents forever: while nobody has the page open, the document lives in each
   participant's browser (IndexedDB) and is re-shared when any of them returns. Use
-  **Download .docx** to keep a permanent copy of important documents.
+  **Export → Word** to keep a permanent copy of important documents.
 - Anyone with the link can edit. There are no accounts or permissions.
-- Tables in uploaded Word files are flattened into text (the editor has no table support).
+- Table cells are single-line; merged cells from Word are split into normal cells.
+- Headers/footers, footnotes, text boxes and tracked changes in Word files are not imported.
 - Fonts: TH Sarabun PSK is © Department of Intellectual Property (DIP) and SIPA, Thailand,
   distributed under the DIP & SIPA Font License (see `fonts/LICENSE-DIP-SIPA.txt`).
+  Google Fonts families are under the SIL Open Font License.
