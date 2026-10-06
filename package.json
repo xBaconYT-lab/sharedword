@@ -1,0 +1,28 @@
+{
+  "name": "sharedword",
+  "version": "1.0.0",
+  "description": "A shared document anyone with the link can edit in real time, with Word import/export.",
+  "scripts": {
+    "build": "esbuild src/main.js --bundle --minify --format=iife --target=es2020 --outfile=app.js",
+    "dev": "esbuild src/main.js --bundle --format=iife --target=es2020 --outfile=app.js --servedir=. --serve=8765"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "docx": "^9.8.1",
+    "mammoth": "^1.13.0",
+    "quill": "^2.0.3",
+    "quill-cursors": "^4.3.0",
+    "y-indexeddb": "^9.0.12",
+    "y-quill": "^1.0.0",
+    "y-webrtc": "^10.3.0",
+    "y-websocket": "^3.1.0",
+    "yjs": "^13.6.33"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  },
+  "private": true
+}

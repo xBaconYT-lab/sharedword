@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shared Word</title>
+  <meta name="description" content="A shared Word document anyone with the link can edit. Changes show up for everyone instantly.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%9D%3C/text%3E%3C/svg%3E">
+  <style>
+    /* TH Sarabun PSK (DIP/SIPA national font) bundled with the site, see fonts/LICENSE-DIP-SIPA.txt */
+    @font-face { font-family: "TH Sarabun PSK"; src: url("fonts/THSarabun.ttf") format("truetype"); font-weight: 400; font-style: normal; font-display: swap; }
+    @font-face { font-family: "TH Sarabun PSK"; src: url("fonts/THSarabun-Bold.ttf") format("truetype"); font-weight: 700; font-style: normal; font-display: swap; }
+    @font-face { font-family: "TH Sarabun PSK"; src: url("fonts/THSarabun-Italic.ttf") format("truetype"); font-weight: 400; font-style: italic; font-display: swap; }
+    @font-face { font-family: "TH Sarabun PSK"; src: url("fonts/THSarabun-BoldItalic.ttf") format("truetype"); font-weight: 700; font-style: italic; font-display: swap; }
+  </style>
+  <link rel="stylesheet" href="app.css">
+  <script>
+    // Edit these without rebuilding. Everyone who opens this page with the same
+    // room name sees and edits the same document. Add #some-name to the URL to
+    // open a separate document on the same site.
+    window.SHAREDWORD_CONFIG = {
+      room: "sharedword-8caee040",
+      websocket: "wss://demos.yjs.dev/ws",
+      signaling: ["wss://y-webrtc-eu.fly.dev"]
+    };
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo">📝</span><span>Shared Word</span></div>
+    <div class="status" id="status" title="Connection status">
+      <span class="dot" id="dot"></span>
+      <span id="status-text">Connecting…</span>
+    </div>
+    <div class="people" id="people" title="People on this document right now"></div>
+    <div class="actions">
+      <input id="name" class="name" type="text" maxlength="24" placeholder="Your name" autocomplete="off" spellcheck="false">
+      <button id="share" class="btn" type="button" title="Copy a link to this document">Copy link</button>
+      <button id="upload" class="btn" type="button" title="Open a Word (.docx) file in this shared document">Upload .docx</button>
+      <button id="download" class="btn primary" type="button" title="Download this document as a Word file">Download .docx</button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <div class="paper">
+      <div id="editor"></div>
+    </div>
+  </main>
+
+  <footer class="foot">
+    Saved automatically · every change syncs live to everyone on this page · you can also drag a .docx file onto this page ·
+    <a href="#" id="new-doc">open a new blank document</a>
+  </footer>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="dropzone" id="dropzone">Drop your .docx file to open it here</div>
+  <script src="app.js"></script>
+</body>
+</html>
