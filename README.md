@@ -13,14 +13,19 @@ edit it, and every change shows up for everyone else instantly (like Google Docs
   before/after, fonts, sizes, colours, highlights, bold/italic/underline, headings,
   numbered and bulleted lists, tabs, images and tables. Style-based formatting
   (e.g. an indent defined in the Normal style) is resolved too.
-- **Export** – Word (.docx), PDF (print dialog → Save as PDF) or plain text. The Word
+- **Export** – Word (.docx), PDF (print dialog → Save as PDF) or plain text. A "file ready"
+  panel offers Download and, on phones, Share (save to Files / send in LINE). LINE's in-app
+  browser cannot save files, so the panel offers to reopen the page in Safari/Chrome. The Word
   file is A4 with 2.54 cm margins, TH Sarabun PSK 16 pt by default, real tab stops,
   `firstLine`/`hanging` indents, Thai-distributed justification for Thai text and
   bordered tables.
 - **ย่อหน้า** – press **Tab** at the start of a paragraph (a real tab, 1.27 cm stops like
   Word) or click the ย่อหน้า toolbar button for a 2.5 cm first-line indent.
-- **Tables** – the ตาราง / Table menu inserts a table and adds/removes rows and columns.
-  Tab moves between cells. Cells hold one line each.
+- **Tables** – the table button inserts a table; right-click a cell (tap on phones) to add or
+  delete rows/columns, merge/split cells and set cell colours. Cells can hold several lines,
+  and merged cells, column widths, shading and header rows come through from Word and back.
+- **Page setup** – a Word file keeps its page size and margins (e.g. Thai official letters
+  with a 3 cm left margin); the editor page and the exported file use them, so lines wrap like Word.
 - **Fonts** – TH Sarabun PSK (bundled, default), 31 Thai fonts from Google Fonts
   (Sarabun, Kanit, Prompt, Mitr, Chakra Petch, Niramit, Krub, Mali, …), the Thai fonts
   that ship with Windows/Office (Angsana New, Cordia New, Browallia New, the UPC family,
@@ -32,14 +37,15 @@ edit it, and every change shows up for everyone else instantly (like Google Docs
 
 ## How it works
 
-Everything is static (no server of your own). The page is built with:
+Everything is static (no server of your own). Backups: `node scripts/room-backup.mjs` saves the
+shared document to `backups/` (gitignored); `node scripts/room-restore.mjs backups/<file>.yjs` merges it back. The page is built with:
 
 | Piece | Library |
 |---|---|
 | Real-time sync (CRDT) | [Yjs](https://github.com/yjs/yjs) |
 | Relay between people | public Yjs websocket relay `wss://demos.yjs.dev/ws` + WebRTC peer-to-peer (`y-webrtc`) |
 | Local copy | `y-indexeddb` |
-| Editor | [Quill 2](https://quilljs.com) with `y-quill`, `quill-cursors` and Quill's table module |
+| Editor | [Quill 2](https://quilljs.com) with `y-quill`, `quill-cursors` and [quill-table-up](https://github.com/zzxming/quill-table-up) |
 | Word import | own parser in `src/docx-import.js` (JSZip + DOMParser); [Mammoth](https://github.com/mwilliamson/mammoth.js) as fallback |
 | Word export | [docx](https://github.com/dolanmiu/docx) |
 
@@ -82,7 +88,6 @@ The font list lives in `src/fonts.js` (rebuild after editing it).
   participant's browser (IndexedDB) and is re-shared when any of them returns. Use
   **Export → Word** to keep a permanent copy of important documents.
 - Anyone with the link can edit. There are no accounts or permissions.
-- Table cells are single-line; merged cells from Word are split into normal cells.
 - Headers/footers, footnotes, text boxes and tracked changes in Word files are not imported.
 - Fonts: TH Sarabun PSK is © Department of Intellectual Property (DIP) and SIPA, Thailand,
   distributed under the DIP & SIPA Font License (see `fonts/LICENSE-DIP-SIPA.txt`).

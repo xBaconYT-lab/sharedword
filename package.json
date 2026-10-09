@@ -15,6 +15,7 @@
     "mammoth": "^1.13.0",
     "quill": "^2.0.3",
     "quill-cursors": "^4.3.0",
+    "quill-table-up": "^3.6.0",
     "y-indexeddb": "^9.0.12",
     "y-quill": "^1.0.0",
     "y-webrtc": "^10.3.0",

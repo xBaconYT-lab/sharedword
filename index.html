@@ -27,7 +27,7 @@
     window.SHAREDWORD_CONFIG = {
       room: "sharedword-8caee040",
       websocket: "wss://demos.yjs.dev/ws",
-      signaling: ["wss://y-webrtc-eu.fly.dev"]
+      signaling: [] // optional WebRTC signaling servers; the public one (wss://y-webrtc-eu.fly.dev) is offline
     };
   </script>
 </head>
@@ -100,17 +100,8 @@
           <button class="ql-list" value="bullet" title="Bulleted list"></button>
           <button class="ql-list" value="check" title="Checklist"></button>
         </span>
-        <span class="ql-formats">
-          <select class="ql-table" title="ตาราง / Table">
-            <option value="insert">แทรกตาราง · Insert table</option>
-            <option value="row-above">เพิ่มแถวด้านบน · Row above</option>
-            <option value="row-below">เพิ่มแถวด้านล่าง · Row below</option>
-            <option value="col-left">เพิ่มคอลัมน์ซ้าย · Column left</option>
-            <option value="col-right">เพิ่มคอลัมน์ขวา · Column right</option>
-            <option value="del-row">ลบแถว · Delete row</option>
-            <option value="del-col">ลบคอลัมน์ · Delete column</option>
-            <option value="del-table">ลบตาราง · Delete table</option>
-          </select>
+        <span class="ql-formats" title="ตาราง · Table (right-click a table to add rows, merge cells…)">
+          <select class="ql-table-up"></select>
         </span>
         <span class="ql-formats">
           <button class="ql-blockquote" title="Quote"></button>
@@ -131,6 +122,19 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <div class="dropzone" id="dropzone">Drop your .docx file to open it here</div>
+  <div class="sheet-backdrop" id="sheet" hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+      <h2 id="sheet-title">ไฟล์พร้อมแล้ว · Your file is ready</h2>
+      <p class="sheet-file" id="sheet-file"></p>
+      <p class="sheet-note" id="sheet-note"></p>
+      <div class="sheet-actions">
+        <a class="btn primary big" id="sheet-download" href="#" download>⬇ ดาวน์โหลด · Download</a>
+        <button class="btn big" id="sheet-share" type="button" hidden>↗ ส่งต่อ / บันทึก · Share</button>
+        <a class="btn big" id="sheet-external" href="#" hidden>เปิดในเบราว์เซอร์ · Open in browser</a>
+      </div>
+      <button class="sheet-close" id="sheet-close" type="button">ปิด · Close</button>
+    </div>
+  </div>
   <script src="app.js"></script>
 </body>
 </html>

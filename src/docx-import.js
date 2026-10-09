@@ -339,32 +339,206 @@ async function pushParagraph (delta, p, ctx) {
   pushRuns(delta, runs, null, pPr, ctx, block)
   delta.insert('\n', block)
 }
-const rowId = () => 'row-' + Math.random().toString(36).slice(2, 7)
+// ---------------------------------------------------------------- tables (quill-table-up format)
+export const TABLE_CELL = 'table-up-cell-inner'
+export const TABLE_COL = 'table-up-col'
+const rid = () => Math.random().toString(36).slice(2, 10)
+
+function cellsOf (tr) {
+  const out = []
+  for (const c of Array.from(tr.children)) {
+    if (c.localName === 'tc') out.push(c)
+    else if (c.localName === 'sdt' || c.localName === 'customXml') out.push(...cellsOf(child(c, 'sdtContent') || c))
+  }
+  return out
+}
+function rowsOf (tbl) {
+  const out = []
+  for (const c of Array.from(tbl.children)) {
+    if (c.localName === 'tr') out.push(c)
+    else if (c.localName === 'sdt' || c.localName === 'customXml') out.push(...rowsOf(child(c, 'sdtContent') || c))
+  }
+  return out
+}
+// paragraphs inside a cell, in order; nested tables are flattened row by row
+function cellParagraphs (el) {
+  const out = []
+  for (const c of Array.from(el.children)) {
+    if (c.localName === 'p') out.push(c)
+    else if (c.localName === 'tbl') for (const tr of rowsOf(c)) for (const tc of cellsOf(tr)) out.push(...cellParagraphs(tc))
+    else if (c.localName === 'sdt' || c.localName === 'customXml') out.push(...cellParagraphs(child(c, 'sdtContent') || c))
+  }
+  return out
+}
+function noBorders (tblPr, ctx) {
+  const b = child(tblPr, 'tblBorders')
+  const sides = b ? Array.from(b.children) : []
+  if (sides.length && sides.every((e) => ['nil', 'none'].includes(attr(e, 'val')))) return true
+  // a table without borders and without a bordered style (e.g. "Normal Table") has no lines in Word
+  if (!b) {
+    const styleId = attr(child(tblPr, 'tblStyle'), 'val')
+    const st = styleId && ctx.tableStyles[styleId]
+    return st ? !st.hasBorders : true
+  }
+  return false
+}
 async function pushTable (delta, tbl, ctx) {
-  for (const tr of kids(tbl, 'tr')) {
-    const id = rowId()
-    const cells = kids(tr, 'tc')
-    for (const tc of cells) {
-      const paras = Array.from(tc.getElementsByTagNameNS(W, 'p'))
-      let cellAlign = null
+  const tableId = rid()
+  const tblPr = child(tbl, 'tblPr')
+  const grid = kids(child(tbl, 'tblGrid'), 'gridCol').map((g) => num(attr(g, 'w')) || 0)
+  const rows = rowsOf(tbl).map((tr) => {
+    const trPr = child(tr, 'trPr')
+    let col = num(attr(child(trPr, 'gridBefore'), 'val')) || 0
+    const cells = []
+    for (const tc of cellsOf(tr)) {
+      const tcPr = child(tc, 'tcPr')
+      const span = Math.max(1, num(attr(child(tcPr, 'gridSpan'), 'val')) || 1)
+      const vm = child(tcPr, 'vMerge')
+      const hm = child(tcPr, 'hMerge')
+      cells.push({
+        tc, tcPr, col, span,
+        vMerge: vm ? (attr(vm, 'val') || 'continue') : null,
+        hMergeContinue: hm ? (attr(hm, 'val') || 'continue') === 'continue' : false,
+        width: num(attr(child(tcPr, 'tcW'), 'w'))
+      })
+      col += span
+    }
+    return {
+      header: onOff(trPr, 'tblHeader') === true,
+      height: num(attr(child(trPr, 'trHeight'), 'val')),
+      cells
+    }
+  }).filter((r) => r.cells.length)
+  if (!rows.length) return
+  // legacy horizontal merges: fold "continue" cells into the cell on their left
+  for (const r of rows) {
+    for (let k = r.cells.length - 1; k > 0; k--) {
+      if (r.cells[k].hMergeContinue) { r.cells[k - 1].span += r.cells[k].span; r.cells.splice(k, 1) }
+    }
+  }
+  const ncols = Math.max(grid.length, ...rows.map((r) => r.cells.reduce((m, c) => Math.max(m, c.col + c.span), 0)), 1)
+  let widths = Array.from({ length: ncols }, (_, i) => grid[i] || 0)
+  if (widths.some((w) => !w)) {
+    // no usable grid: use cell widths of the first row, else equal widths
+    const fromCells = Array(ncols).fill(0)
+    for (const c of rows[0].cells) if (c.width && c.span === 1) fromCells[c.col] = c.width
+    widths = widths.map((w, i) => w || fromCells[i] || Math.round(ctx.textWidth / ncols))
+  }
+  const total = widths.reduce((s, w) => s + w, 0)
+  const full = total >= 0.9 * ctx.textWidth
+  const colIds = widths.map(() => rid())
+  const rowIds = rows.map(() => rid())
+  widths.forEach((w, i) => {
+    delta.insert({
+      [TABLE_COL]: {
+        tableId, colId: colIds[i], full,
+        width: full ? Math.round((w / total) * 10000) / 100 : Math.max(40, Math.round(w / 15))
+      }
+    })
+  })
+  // vertical merges -> rowspan
+  rows.forEach((r, ri) => {
+    for (const c of r.cells) {
+      if (c.vMerge === 'continue') { c.covered = true; continue }
+      let rs = 1
+      if (c.vMerge === 'restart') {
+        for (let k = ri + 1; k < rows.length; k++) {
+          const below = rows[k].cells.find((x) => x.col === c.col)
+          if (below && below.vMerge === 'continue') rs++
+          else break
+        }
+      }
+      c.rowspan = rs
+    }
+  })
+  // rows whose cells are all covered by row-spans must be recorded on the spanning cell
+  rows.forEach((r, ri) => {
+    if (r.cells.some((c) => !c.covered)) return
+    for (let k = ri - 1; k >= 0; k--) {
+      const owner = rows[k].cells.find((c) => !c.covered && k + c.rowspan > ri)
+      if (owner) { (owner.emptyRow = owner.emptyRow || []).push(rowIds[ri]); break }
+    }
+  })
+  const bordersOff = noBorders(tblPr, ctx)
+  // repeating header rows are the ones at the top of the table
+  let headerRows = 0
+  while (headerRows < rows.length && rows[headerRows].header) headerRows++
+  if (headerRows === rows.length) headerRows = 0
+  for (let ri = 0; ri < rows.length; ri++) {
+    const r = rows[ri]
+    for (const c of r.cells) {
+      if (c.covered) continue
+      const style = []
+      const shd = child(c.tcPr, 'shd')
+      const fill = shd && attr(shd, 'fill')
+      if (fill && fill !== 'auto' && /^[0-9a-f]{6}$/i.test(fill)) style.push(`background-color: #${fill.toLowerCase()}`)
+      if (r.height) style.push(`height: ${Math.round(r.height / 15)}px`)
+      if (bordersOff) style.push('border: 1px dashed rgb(203, 213, 225)')
+      const cellAttr = {
+        tableId,
+        rowId: rowIds[ri],
+        colId: colIds[Math.min(c.col, ncols - 1)],
+        rowspan: c.rowspan || 1,
+        colspan: c.span,
+        tag: 'td',
+        wrapTag: ri < headerRows ? 'thead' : 'tbody'
+      }
+      if (style.length) cellAttr.style = style.join('; ')
+      if (c.emptyRow) cellAttr.emptyRow = c.emptyRow
+      const paras = cellParagraphs(c.tc)
       let wrote = false
       for (const p of paras) {
         const pPr = readPPr(child(p, 'pPr'))
         const runs = await paragraphRuns(p, ctx)
-        if (!runs.length) continue
-        if (wrote) delta.insert(' ')
-        pushRuns(delta, runs, null, pPr, ctx, {}, { singleLine: true })
+        const { list, indent, header, ...ba } = blockAttrs(pPr, ctx)
+        const block = { ...ba, [TABLE_CELL]: cellAttr }
+        if (list) block.list = list
+        if (indent) block.indent = indent
+        pushRuns(delta, runs, null, pPr, ctx, block)
+        delta.insert('\n', block)
         wrote = true
-        const ba = blockAttrs(pPr, ctx)
-        if (ba.align && !cellAlign) cellAlign = ba.align
       }
-      const cellAttrs = { table: id }
-      if (cellAlign) cellAttrs.align = cellAlign
-      delta.insert('\n', cellAttrs)
-      const span = parseInt(attr(child(child(tc, 'tcPr'), 'gridSpan'), 'val') || '1', 10)
-      for (let i = 1; i < span; i++) delta.insert('\n', { table: id })
+      if (!wrote) delta.insert('\n', { [TABLE_CELL]: cellAttr })
     }
   }
+}
+function parseTableStyles (xml) {
+  const out = {}
+  if (!xml) return out
+  const root = parseXml(xml).documentElement
+  for (const s of kids(root, 'style')) {
+    if (attr(s, 'type') !== 'table') continue
+    const b = child(child(s, 'tblPr'), 'tblBorders')
+    const sides = b ? Array.from(b.children) : []
+    out[attr(s, 'styleId')] = { hasBorders: sides.some((e) => !['nil', 'none'].includes(attr(e, 'val'))) }
+  }
+  return out
+}
+function pageOf (body) {
+  const sect = Array.from(body.children).reverse().find((c) => c.localName === 'sectPr')
+  const sz = child(sect, 'pgSz')
+  const mar = child(sect, 'pgMar')
+  const page = {
+    width: num(attr(sz, 'w')),
+    height: num(attr(sz, 'h')),
+    top: num(attr(mar, 'top')),
+    right: num(attr(mar, 'right')) ?? num(attr(mar, 'end')),
+    bottom: num(attr(mar, 'bottom')),
+    left: num(attr(mar, 'left')) ?? num(attr(mar, 'start'))
+  }
+  for (const k of Object.keys(page)) if (page[k] == null) delete page[k]
+  if (page.top != null) page.top = Math.abs(page.top)
+  if (page.bottom != null) page.bottom = Math.abs(page.bottom)
+  return page
+}
+function textWidthOf (body) {
+  const sect = Array.from(body.children).reverse().find((c) => c.localName === 'sectPr')
+  const w = num(attr(child(sect, 'pgSz'), 'w'))
+  const mar = child(sect, 'pgMar')
+  const l = num(attr(mar, 'left')) ?? num(attr(mar, 'start'))
+  const r = num(attr(mar, 'right')) ?? num(attr(mar, 'end'))
+  if (w && l != null && r != null && w - l - r > 1000) return w - l - r
+  return 9026
 }
 
 /**
@@ -383,10 +557,14 @@ export async function docxToDelta (arrayBuffer, opts = {}) {
     rels: parseRels(await read('word/_rels/document.xml.rels')),
     imageCache: {},
     mapFont: opts.mapFont || (() => null),
-    defaultSize: opts.defaultSize || '16pt'
+    defaultSize: opts.defaultSize || '16pt',
+    tableStyles: {},
+    textWidth: 9026
   }
+  ctx.tableStyles = parseTableStyles(await read('word/styles.xml'))
   const body = parseXml(docXml).documentElement.getElementsByTagNameNS(W, 'body')[0]
   if (!body) throw new Error('document body missing')
+  ctx.textWidth = textWidthOf(body)
   const delta = new Delta()
   const walkBody = async (el) => {
     for (const c of Array.from(el.children)) {
@@ -396,8 +574,9 @@ export async function docxToDelta (arrayBuffer, opts = {}) {
     }
   }
   await walkBody(body)
+  delta.page = pageOf(body)
   // a table at the very end needs a paragraph after it so people can type below
   const last = delta.ops[delta.ops.length - 1]
-  if (last && last.attributes && last.attributes.table) delta.insert('\n')
+  if (last && last.attributes && last.attributes[TABLE_CELL]) delta.insert('\n')
   return delta
 }
